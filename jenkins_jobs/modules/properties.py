@@ -39,6 +39,81 @@ from jenkins_jobs.errors import JenkinsJobsException
 import jenkins_jobs.modules.base
 
 
+def rabbitmq(parser, xml_parent, data):
+    """yaml: rabbitmq
+    This plugin connects to RabbitMQ, consumes messages in queue, then notifies
+    it to listener.
+
+    Requires the Jenkins :jenkins-wiki:`RabbitMQ Consumer Plugin
+    <RabbitMQ+Consumer+Plugin>`.
+
+    :arg bool enabled: whether the consumer is enabled (optional, default true)
+    :arg str uri: valid `amqp uri <http://www.rabbitmq.com/uri-spec.html>`
+    :arg str user: rabbitmq username
+    :arg str password: rabbitmq password
+    :arg int reconnect: time in milliseconds to reconnect (default 60000)
+    :arg bool debug: enable debug listeners (optional, default false)
+    :arg list queues: list of queues to consume from
+
+    Example:
+
+    .. literalinclude:: /../../tests/properties/fixtures/rabbitmq.yaml
+       :language: yaml
+    """
+
+    rabbitmq = XML.SubElement(
+        xml_parent,
+        'org.jenkinsci.plugins.rabbitmqconsumer.'
+        'GlobalRabbitmqConfiguration')
+
+    validator = XML.SubElement(rabbitmq, 'urlValidator')
+    XML.SubElement(validator, 'options').text = '8'
+
+    allowed = XML.SubElement(validator, 'allowedSchemes')
+    XML.SubElement(allowed, 'string').text = 'amqps'
+    XML.SubElement(allowed, 'string').text = 'amqp'
+
+    if data.get('enabled', True) is False:
+        XML.SubElement(rabbitmq, 'enableConsumer').text = 'false'
+    else:
+        XML.SubElement(rabbitmq, 'enableConsumer').text = 'true'
+
+    XML.SubElement(rabbitmq, 'serviceUri').text = str(
+        data.get('uri'))
+
+    XML.SubElement(rabbitmq, 'userName').text = str(
+        data.get('user', ''))
+
+    XML.SubElement(rabbitmq, 'userPassword').text = str(
+        data.get('password', ''))
+
+    XML.SubElement(rabbitmq, 'watchdogPeriod').text = str(
+        data.get('reconnect', '60000'))
+
+    queues = data.get('queues')
+    if queues:
+        consume_items = XML.SubElement(rabbitmq, 'consumeItems')
+
+        for queue in queues:
+
+            consume_item = XML.SubElement(
+                consume_items,
+                'org.jenkinsci.plugins.rabbitmqconsumer.'
+                'RabbitmqConsumeItem')
+
+            q = queue.get('queue')
+            XML.SubElement(consume_item, 'appId').text = str(
+                q.get('appid', '-'))
+
+            XML.SubElement(consume_item, 'queueName').text = str(
+                q.get('name'))
+
+    if data.get('debug', True) is True:
+        XML.SubElement(rabbitmq, 'enableDebug').text = 'true'
+    else:
+        XML.SubElement(rabbitmq, 'enableDebug').text = 'false'
+
+
 def builds_chain_fingerprinter(parser, xml_parent, data):
     """yaml: builds-chain-fingerprinter
     Builds chain fingerprinter.
@@ -46,13 +121,14 @@ def builds_chain_fingerprinter(parser, xml_parent, data):
     <Builds+chain+fingerprinter>`.
 
     :arg bool per-builds-chain: enable builds hierarchy fingerprinting
-        (default False)
+        (default false)
     :arg bool per-job-chain: enable jobs hierarchy fingerprinting
-        (default False)
+        (default false)
 
     Example:
 
     .. literalinclude:: /../../tests/properties/fixtures/fingerprinter.yaml
+       :language: yaml
     """
     fingerprinter = XML.SubElement(xml_parent,
                                    'org.jenkinsci.plugins.'
@@ -76,11 +152,11 @@ def ownership(parser, xml_parent, data):
     Example:
 
     .. literalinclude:: /../../tests/properties/fixtures/ownership.yaml
+       :language: yaml
     """
-    ownership_plugin = \
-        XML.SubElement(xml_parent,
-                       'com.synopsys.arc.'
-                       'jenkins.plugins.ownership.jobs.JobOwnerJobProperty')
+    ownership_plugin = XML.SubElement(
+        xml_parent,
+        'com.synopsys.arc.jenkins.plugins.ownership.jobs.JobOwnerJobProperty')
     ownership = XML.SubElement(ownership_plugin, 'ownership')
     owner = str(data.get('enabled', True)).lower()
     XML.SubElement(ownership, 'ownershipEnabled').text = owner
@@ -101,15 +177,12 @@ def promoted_build(parser, xml_parent, data):
     Requires the Jenkins :jenkins-wiki:`Promoted Builds Plugin
     <Promoted+Builds+Plugin>`.
 
-    :arg list names: the promoted build names
+    :arg list names: the promoted build names (optional)
 
-    Example::
+    Example:
 
-      properties:
-        - promoted-build:
-            names:
-              - "Release to QA"
-              - "Jane Must Approve"
+    .. literalinclude:: /../../tests/properties/fixtures/promoted_build.yaml
+       :language: yaml
     """
     promoted = XML.SubElement(xml_parent, 'hudson.plugins.promoted__builds.'
                                           'JobPropertyImpl')
@@ -124,13 +197,12 @@ def github(parser, xml_parent, data):
     """yaml: github
     Sets the GitHub URL for the project.
 
-    :arg str url: the GitHub URL
+    :arg str url: the GitHub URL (required)
 
-    Example::
+    Example:
 
-      properties:
-        - github:
-            url: https://github.com/openstack-infra/jenkins-job-builder/
+    .. literalinclude:: /../../tests/properties/fixtures/github.yaml
+       :language: yaml
     """
     github = XML.SubElement(xml_parent,
                             'com.coravy.hudson.plugins.github.'
@@ -144,11 +216,12 @@ def least_load(parser, xml_parent, data):
     Enables the Least Load Plugin.
     Requires the Jenkins :jenkins-wiki:`Least Load Plugin <Least+Load+Plugin>`.
 
-    :arg bool disabled: whether or not leastload is disabled (default True)
+    :arg bool disabled: whether or not leastload is disabled (default true)
 
     Example:
 
     .. literalinclude:: /../../tests/properties/fixtures/least-load002.yaml
+       :language: yaml
     """
     least = XML.SubElement(xml_parent,
                            'org.bstick12.jenkinsci.plugins.leastload.'
@@ -166,19 +239,16 @@ def throttle(parser, xml_parent, data):
 
     :arg int max-per-node: max concurrent builds per node (default 0)
     :arg int max-total: max concurrent builds (default 0)
-    :arg bool enabled: whether throttling is enabled (default True)
+    :arg bool enabled: whether throttling is enabled (default true)
     :arg str option: throttle `project` or `category`
     :arg list categories: multiproject throttle categories
+    :arg bool matrix-builds: throttle matrix master builds (default true)
+    :arg bool matrix-configs: throttle matrix config builds (default false)
 
-    Example::
+    Example:
 
-      properties:
-        - throttle:
-            max-total: 4
-            categories:
-              - cat1
-              - cat2
-
+    .. literalinclude:: /../../tests/properties/fixtures/throttle001.yaml
+       :language: yaml
     """
     throttle = XML.SubElement(xml_parent,
                               'hudson.plugins.throttleconcurrents.'
@@ -202,6 +272,12 @@ def throttle(parser, xml_parent, data):
     XML.SubElement(throttle, 'throttleOption').text = data.get('option')
     XML.SubElement(throttle, 'configVersion').text = '1'
 
+    matrixopt = XML.SubElement(throttle, 'matrixOptions')
+    XML.SubElement(matrixopt, 'throttleMatrixBuilds').text = str(
+        data.get('matrix-builds', True)).lower()
+    XML.SubElement(matrixopt, 'throttleMatrixConfigurations').text = str(
+        data.get('matrix-configs', False)).lower()
+
 
 def sidebar(parser, xml_parent, data):
     """yaml: sidebar
@@ -216,6 +292,7 @@ def sidebar(parser, xml_parent, data):
     Example:
 
     .. literalinclude:: /../../tests/properties/fixtures/sidebar02.yaml
+       :language: yaml
     """
     sidebar = xml_parent.find('hudson.plugins.sidebar__link.ProjectLinks')
     if sidebar is None:
@@ -285,58 +362,49 @@ def authenticated_build(parser, xml_parent, data):
     Specifies an authorization matrix where only authenticated users
     may trigger a build.
 
-    DEPRECATED
+    .. deprecated:: 0.1.0. Please use :ref:`authorization <authorization>`.
 
-    Example::
+    Example:
 
-      properties:
-        - authenticated-build
+    .. literalinclude::
+        /../../tests/properties/fixtures/authenticated_build.yaml
+       :language: yaml
+
     """
     # TODO: generalize this
-    if data:
-        security = XML.SubElement(xml_parent,
-                                  'hudson.security.'
-                                  'AuthorizationMatrixProperty')
-        XML.SubElement(security, 'permission').text = \
-            'hudson.model.Item.Build:authenticated'
+    security = XML.SubElement(xml_parent,
+                              'hudson.security.'
+                              'AuthorizationMatrixProperty')
+    XML.SubElement(security, 'permission').text = (
+        'hudson.model.Item.Build:authenticated')
 
 
 def authorization(parser, xml_parent, data):
     """yaml: authorization
     Specifies an authorization matrix
 
-    The available rights are:
-      job-delete
-      job-configure
-      job-read
-      job-extended-read
-      job-discover
-      job-build
-      job-workspace
-      job-cancel
-      run-delete
-      run-update
-      scm-tag
+    :arg list <name>: `<name>` is the name of the group or user, containing
+        the list of rights to grant.
 
-    Example::
+       :<name> rights:
+            * **job-delete**
+            * **job-configure**
+            * **job-read**
+            * **job-extended-read**
+            * **job-discover**
+            * **job-build**
+            * **job-workspace**
+            * **job-cancel**
+            * **run-delete**
+            * **run-update**
+            * **scm-tag**
 
-      properties:
-        - authorization:
-            admin:
-              - job-delete
-              - job-configure
-              - job-read
-              - job-discover
-              - job-build
-              - job-workspace
-              - job-cancel
-              - run-delete
-              - run-update
-              - scm-tag
-            anonymous:
-              - job-discover
-              - job-read
-              - job-extended-read
+    Example:
+
+    .. literalinclude::
+        /../../tests/properties/fixtures/authorization_matrix.yaml
+       :language: yaml
+
     """
 
     mapping = {
@@ -389,11 +457,10 @@ def priority_sorter(parser, xml_parent, data):
     :arg int priority: Priority of the job.  Higher value means higher
         priority, with 100 as the standard priority. (required)
 
-    Example::
+    Example:
 
-        properties:
-          - priority-sorter:
-              priority: 150
+    .. literalinclude:: /../../tests/properties/fixtures/priority_sorter.yaml
+       :language: yaml
     """
     priority_sorter_tag = XML.SubElement(xml_parent,
                                          'hudson.queueSorter.'
@@ -411,22 +478,19 @@ def build_blocker(parser, xml_parent, data):
     Requires the Jenkins :jenkins-wiki:`Build Blocker Plugin
     <Build+Blocker+Plugin>`.
 
-    :arg bool use-build-blocker: Enable or disable build blocker
-        (default true)
-    :arg list blocking-jobs: One regular expression per line
-        to select blocking jobs by their names. (required)
-
+    :arg bool use-build-blocker: Enable or disable build blocker (default true)
+    :arg list blocking-jobs: One regular expression per line to select
+        blocking jobs by their names. (required)
     :arg str block-level: block build globally ('GLOBAL') or per node ('NODE')
         (default 'GLOBAL')
-
     :arg str queue-scanning: scan build queue for all builds ('ALL') or only
         buildable builds ('BUILDABLE') (default 'DISABLED'))
 
-
     Example:
 
-    .. literalinclude:: \
-            /../../tests/properties/fixtures/build-blocker01.yaml
+    .. literalinclude::
+        /../../tests/properties/fixtures/build-blocker01.yaml
+       :language: yaml
     """
     blocker = XML.SubElement(xml_parent,
                              'hudson.plugins.'
@@ -467,14 +531,14 @@ def copyartifact(parser, xml_parent, data):
     Requires the Jenkins :jenkins-wiki:`Copy Artifact plugin
     <Copy+Artifact+Plugin>`.
 
-    :arg string projects: comma separated list of projects that can copy
+    :arg str projects: comma separated list of projects that can copy
         artifacts of this project. Wild card character '*' is available.
-
 
     Example:
 
-    .. literalinclude:: \
-            /../../tests/properties/fixtures/copyartifact.yaml
+    .. literalinclude::
+        /../../tests/properties/fixtures/copyartifact.yaml
+       :language: yaml
 
     """
     copyartifact = XML.SubElement(xml_parent,
@@ -504,12 +568,14 @@ def batch_tasks(parser, xml_parent, data):
 
     :arg list batch-tasks: Batch tasks.
 
-        :Task: * **name** (`str`) Task name.
-               * **script** (`str`) Task script.
+        :Tasks:
+            * **name** (`str`) Task name.
+            * **script** (`str`) Task script.
 
     Example:
 
     .. literalinclude:: /../../tests/properties/fixtures/batch-task.yaml
+       :language: yaml
 
     """
     pdef = XML.SubElement(xml_parent,
@@ -532,10 +598,10 @@ def heavy_job(parser, xml_parent, data):
     :arg int weight: Specify the total number of executors
         that this job should occupy (default 1)
 
-
     Example:
 
     .. literalinclude:: /../../tests/properties/fixtures/heavy-job.yaml
+       :language: yaml
 
     """
     heavyjob = XML.SubElement(xml_parent,
@@ -554,15 +620,16 @@ def slave_utilization(parser, xml_parent, data):
     <Slave+Utilization+Plugin>`.
 
     :arg int slave-percentage: Specify the percentage of a slave's execution
-        slots that this job should occupy (default: 0)
+        slots that this job should occupy (default 0)
     :arg bool single-instance-per-slave: Control whether concurrent instances
         of this job will be permitted to run in parallel on a single slave
-        (default: False)
+        (default false)
 
     Example:
 
-    .. literalinclude:: \
-            /../../tests/properties/fixtures/slave-utilization1.yaml
+    .. literalinclude::
+        /../../tests/properties/fixtures/slave-utilization1.yaml
+       :language: yaml
     """
     utilization = XML.SubElement(
         xml_parent, 'com.suryagaddipati.jenkins.SlaveUtilizationProperty')
@@ -580,15 +647,16 @@ def delivery_pipeline(parser, xml_parent, data):
     Requires the Jenkins :jenkins-wiki:`Delivery Pipeline Plugin
     <Delivery+Pipeline+Plugin>`.
 
+    :arg str stage: Name of the stage for this job (default '')
+    :arg str task: Name of the task for this job (default '')
     :arg str description: task description template for this job
-        (default: '')
-    :arg str stage: Name of the stage for this job (default: '')
-    :arg str task: Name of the task for this job (default: '')
+        (default '')
 
     Example:
 
-    .. literalinclude:: \
-            /../../tests/properties/fixtures/delivery-pipeline1.yaml
+    .. literalinclude::
+        /../../tests/properties/fixtures/delivery-pipeline1.yaml
+       :language: yaml
 
     """
     pipeline = XML.SubElement(xml_parent,
@@ -610,8 +678,9 @@ def zeromq_event(parser, xml_parent, data):
 
     Example:
 
-    .. literalinclude:: \
-            /../../tests/properties/fixtures/zeromq-event.yaml
+    .. literalinclude::
+        /../../tests/properties/fixtures/zeromq-event.yaml
+       :language: yaml
 
     """
 
@@ -627,14 +696,15 @@ def rebuild(parser, xml_parent, data):
     <Rebuild+Plugin>`.
 
     :arg bool auto-rebuild: Rebuild without asking for parameters
-        (default: False)
+        (default false)
     :arg bool rebuild-disabled: Disable rebuilding for this job
-        (default: False)
+        (default false)
 
     Example:
 
-    .. literalinclude:: \
-            /../../tests/properties/fixtures/rebuild.yaml
+    .. literalinclude::
+        /../../tests/properties/fixtures/rebuild.yaml
+       :language: yaml
     """
     sub_element = XML.SubElement(xml_parent,
                                  'com.sonyericsson.rebuild.RebuildSettings')

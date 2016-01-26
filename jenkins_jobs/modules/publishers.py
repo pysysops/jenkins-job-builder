@@ -37,6 +37,7 @@ from jenkins_jobs.errors import InvalidAttributeError
 from jenkins_jobs.errors import JenkinsJobsException
 from jenkins_jobs.errors import MissingAttributeError
 import jenkins_jobs.modules.base
+from jenkins_jobs.modules import hudson_model
 from jenkins_jobs.modules.helpers import artifactory_common_details
 from jenkins_jobs.modules.helpers import artifactory_deployment_patterns
 from jenkins_jobs.modules.helpers import artifactory_env_vars_patterns
@@ -48,7 +49,34 @@ from jenkins_jobs.modules.helpers import cloudformation_stack
 from jenkins_jobs.modules.helpers import config_file_provider_settings
 from jenkins_jobs.modules.helpers import findbugs_settings
 from jenkins_jobs.modules.helpers import get_value_from_yaml_or_config_file
-from jenkins_jobs.modules import hudson_model
+from jenkins_jobs.modules.helpers import convert_mapping_to_xml
+
+
+def rabbitmq(parser, xml_parent, data):
+    """yaml: rabbitmq
+    This plugin publishes build information to a RabbitMQ queue.
+    Requires the Jenkins :jenkins-wiki:`RabbitMQ Build Trigger Plugin
+    <RabbitMQ+Build+Trigger+Plugin>`.
+
+    :arg str exchange: the rabbitmq exchange to publish to
+    :arg str routingkey: message routing key
+        (default: org.jenkinsci.plugins.rabbitmqbuildtrigger)
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/rabbitmq.yaml
+    """
+
+    rabbitmq = XML.SubElement(
+        xml_parent,
+        'org.jenkinsci.plugins.rabbitmqbuildtrigger.'
+        'RemoteBuildPublisher')
+
+    XML.SubElement(rabbitmq, 'brokerName').text = str(
+        data.get('exchange'))
+
+    XML.SubElement(rabbitmq, 'routingKey').text = str(
+        data.get('routingkey', 'org.jenkinsci.plugins.rabbitmqbuildtrigger'))
 
 
 def archive(parser, xml_parent, data):
@@ -56,14 +84,16 @@ def archive(parser, xml_parent, data):
     Archive build artifacts
 
     :arg str artifacts: path specifier for artifacts to archive
-    :arg str excludes: path specifier for artifacts to exclude
+    :arg str excludes: path specifier for artifacts to exclude (optional)
     :arg bool latest-only: only keep the artifacts from the latest
-      successful build
+        successful build
     :arg bool allow-empty:  pass the build if no artifacts are
-      found (default false)
+        found (default false)
     :arg bool only-if-success: archive artifacts only if build is successful
-      (default false)
+        (default false)
     :arg bool fingerprint: fingerprint all archived artifacts (default false)
+    :arg bool default-excludes: This option allows to enable or disable the
+        default Ant exclusions. (default true)
 
     Example:
 
@@ -101,6 +131,9 @@ def archive(parser, xml_parent, data):
     if 'fingerprint' in data:
         fingerprint = XML.SubElement(archiver, 'fingerprint')
         fingerprint.text = str(data.get('fingerprint', False)).lower()
+
+    default_excludes = XML.SubElement(archiver, 'defaultExcludes')
+    default_excludes.text = str(data.get('default-excludes', True)).lower()
 
 
 def blame_upstream(parser, xml_parent, data):
@@ -213,6 +246,52 @@ def jdepend(parser, xml_parent, data):
     XML.SubElement(jdepend, 'configuredJDependFile').text = str(filepath)
 
 
+def hue_light(parser, xml_parent, data):
+    """yaml: hue-light
+    This plugin shows the state of your builds using the awesome Philips hue
+    lights.
+
+    Requires the Jenkins :jenkins-wiki:`hue-light Plugin
+    <hue-light+Plugin>`.
+
+    :arg int light-id: ID of light. Define multiple lights by a comma as a
+        separator (required)
+    :arg string pre-build: Colour of building state (default 'blue')
+    :arg string good-build: Colour of succesful state (default 'green')
+    :arg string unstable-build: Colour of unstable state (default 'yellow')
+    :arg string bad-build: Colour of unsuccessful state (default 'red')
+
+    Example:
+
+    .. literalinclude::
+       /../../tests/publishers/fixtures/hue-light-minimal.yaml
+       :language: yaml
+
+    .. literalinclude::
+       /../../tests/publishers/fixtures/hue-light001.yaml
+       :language: yaml
+    """
+
+    hue_light = XML.SubElement(
+        xml_parent, 'org.jenkinsci.plugins.hue__light.LightNotifier')
+    hue_light.set('plugin', 'hue-light')
+
+    if 'light-id' not in data:
+        raise MissingAttributeError('light-id')
+    lightId = XML.SubElement(hue_light, 'lightId')
+    XML.SubElement(lightId, 'string').text = str(data.get(
+        'light-id', ''))
+
+    XML.SubElement(hue_light, 'preBuild').text = data.get(
+        'pre-build', 'blue')
+    XML.SubElement(hue_light, 'goodBuild').text = data.get(
+        'good-build', 'green')
+    XML.SubElement(hue_light, 'unstableBuild').text = data.get(
+        'unstable-build', 'yellow')
+    XML.SubElement(hue_light, 'badBuild').text = data.get(
+        'bad-build', 'red')
+
+
 def campfire(parser, xml_parent, data):
     """yaml: campfire
     Send build notifications to Campfire rooms.
@@ -259,7 +338,9 @@ def campfire(parser, xml_parent, data):
 
 def emotional_jenkins(parser, xml_parent, data):
     """yaml: emotional-jenkins
-    Emotional Jenkins.
+    Emotional Jenkins. This funny plugin changes the expression of Mr. Jenkins
+    in the background when your builds fail.
+
     Requires the Jenkins :jenkins-wiki:`Emotional Jenkins Plugin
     <Emotional+Jenkins+Plugin>`.
 
@@ -2052,7 +2133,7 @@ def groovy_postbuild(parser, xml_parent, data):
     # Backward compatibility with old format
     if isinstance(data, six.string_types):
         logger.warn(
-            "You use depricated configuration, please follow documentation "
+            "You use deprecated configuration, please follow documentation "
             "to change configuration. It is not going to be supported in "
             "future releases!"
         )
@@ -3789,6 +3870,7 @@ def stash(parser, xml_parent, data):
     :arg string url: Base url of Stash Server (Default: "")
     :arg string username: Username of Stash Server (Default: "")
     :arg string password: Password of Stash Server (Default: "")
+    :arg string credentials-id: Credentials of Stash Server (optional)
     :arg bool   ignore-ssl: Ignore unverified SSL certificate (Default: False)
     :arg string commit-sha1: Commit SHA1 to notify (Default: "")
     :arg bool   include-build-number: Include build number in key
@@ -3803,12 +3885,17 @@ def stash(parser, xml_parent, data):
                          'org.jenkinsci.plugins.stashNotifier.StashNotifier')
 
     XML.SubElement(top, 'stashServerBaseUrl').text = data.get('url', '')
-    XML.SubElement(top, 'stashUserName'
-                   ).text = get_value_from_yaml_or_config_file(
-                       'username', 'stash', data, parser)
-    XML.SubElement(top, 'stashUserPassword'
-                   ).text = get_value_from_yaml_or_config_file(
-                       'password', 'stash', data, parser)
+    if data.get('credentials-id') is not None:
+        XML.SubElement(top, 'credentialsId').text = str(
+            data.get('credentials-id'))
+    else:
+        XML.SubElement(top, 'stashUserName'
+                       ).text = get_value_from_yaml_or_config_file(
+                           'username', 'stash', data, parser)
+        XML.SubElement(top, 'stashUserPassword'
+                       ).text = get_value_from_yaml_or_config_file(
+                           'password', 'stash', data, parser)
+
     XML.SubElement(top, 'ignoreUnverifiedSSLPeer').text = str(
         data.get('ignore-ssl', False)).lower()
     XML.SubElement(top, 'commitSha1').text = data.get('commit-sha1', '')
@@ -5546,6 +5633,107 @@ def phabricator(parser, xml_parent, data):
     if 'comment-with-console-link-on-failure' in data:
         XML.SubElement(root, 'commentWithConsoleLinkOnFailure').text = str(
             data.get('comment-with-console-link-on-failure')).lower()
+
+
+def openshift_build_canceller(parser, xml_parent, data):
+    """yaml: openshift-build-canceller
+    This action is intended to provide cleanup for a Jenkins job which failed
+    because a build is hung (instead of terminating with a failure code);
+    this step will allow you to perform the equivalent of a oc cancel-build
+    for the provided build config; any builds under that build config which
+    are not previously terminated (either successfully or unsuccessfully)
+    or cancelled will be cancelled.
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
+
+    :arg str api-url: this would be the value you specify if you leverage the
+        --server option on the OpenShift `oc` command.
+        (default '\https://openshift.default.svc.cluster.local')
+    :arg str bld-cfg: The value here should be whatever was the output
+        form `oc project` when you created the BuildConfig you
+        want to run a Build on (default 'frontend')
+    :arg str namespace: If you run `oc get bc` for the project listed in
+        "namespace", that is the value you want to put here. (default 'test')
+    :arg str auth-token: The value here is what you supply with the --token
+        option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
+
+    Full Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-build-canceller001.yaml
+       :language: yaml
+
+    Minimal Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-build-canceller002.yaml
+       :language: yaml
+    """
+
+    osb = XML.SubElement(xml_parent,
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftBuildCanceller')
+    mapping = [
+        # option, xml name, default value
+        ("api-url", 'apiURL', 'https://openshift.default.svc.cluster.local'),
+        ("bld-cfg", 'bldCfg', 'frontend'),
+        ("namespace", 'namespace', 'test'),
+        ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
+    ]
+
+    convert_mapping_to_xml(osb, data, mapping)
+
+
+def openshift_deploy_canceller(parser, xml_parent, data):
+    """yaml: openshift-deploy-canceller
+    This action is intended to provide cleanup for any OpenShift deployments
+    left running when the Job completes; this step will allow you to perform
+    the equivalent of a oc deploy --cancel for the provided deployment config.
+    Requires the Jenkins :jenkins-wiki:`OpenShift
+    Pipeline Plugin <OpenShift+Pipeline+Plugin>`.
+
+    :arg str api-url: this would be the value you specify if you leverage the
+        --server option on the OpenShift `oc` command.
+        (default '\https://openshift.default.svc.cluster.local')
+    :arg str dep-cfg: The value here should be whatever was the output
+        form `oc project` when you created the BuildConfig you want to run a
+        Build on (default frontend)
+    :arg str namespace: If you run `oc get bc` for the project listed in
+        "namespace", that is the value you want to put here. (default 'test')
+    :arg str auth-token: The value here is what you supply with the --token
+        option when invoking the OpenShift `oc` command. (optional)
+    :arg str verbose: This flag is the toggle for
+        turning on or off detailed logging in this plug-in. (default 'false')
+
+    Full Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-deploy-canceller001.yaml
+       :language: yaml
+
+    Minimal Example:
+
+    .. literalinclude::
+        ../../tests/publishers/fixtures/openshift-deploy-canceller002.yaml
+       :language: yaml
+    """
+
+    osb = XML.SubElement(xml_parent,
+                         'com.openshift.jenkins.plugins.pipeline.'
+                         'OpenShiftDeployCanceller')
+    mapping = [
+        # option, xml name, default value
+        ("api-url", 'apiURL', 'https://openshift.default.svc.cluster.local'),
+        ("dep-cfg", 'depCfg', 'frontend'),
+        ("namespace", 'namespace', 'test'),
+        ("auth-token", 'authToken', ''),
+        ("verbose", 'verbose', 'false'),
+    ]
+
+    convert_mapping_to_xml(osb, data, mapping)
 
 
 class Publishers(jenkins_jobs.modules.base.Base):

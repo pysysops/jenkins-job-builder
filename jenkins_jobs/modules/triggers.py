@@ -49,6 +49,32 @@ except ImportError:
 logger = logging.getLogger(str(__name__))
 
 
+def rabbitmq(parser, xml_parent, data):
+    """yaml: rabbitmq
+    This plugin triggers build using remote build message in RabbitMQ queue.
+    Requires the Jenkins :jenkins-wiki:`RabbitMQ Build Trigger Plugin
+    <RabbitMQ+Build+Trigger+Plugin>`.
+
+    :arg str token: the build token expected in the message queue
+
+    Example:
+
+    .. literalinclude:: /../../tests/triggers/fixtures/rabbitmq.yaml
+    """
+
+    data = data if data else {}
+
+    rabbitmq = XML.SubElement(
+        xml_parent,
+        'org.jenkinsci.plugins.rabbitmqbuildtrigger.'
+        'RemoteBuildTrigger')
+
+    XML.SubElement(rabbitmq, 'spec').text = ''
+
+    XML.SubElement(rabbitmq, 'remoteBuildToken').text = str(
+        data.get('token'))
+
+
 def gerrit_handle_legacy_configuration(data):
     hyphenizer = re.compile("[A-Z]")
 
@@ -1049,6 +1075,7 @@ def gitlab(parser, xml_parent, data):
         merge requests (default: True)
     :arg bool add-vote-merge-request: Vote added to note with build status
         on merge requests (default: True)
+    :arg bool add-ci-message: Add CI build status (default: False)
     :arg bool allow-all-branches: Allow all branches (Ignoring Filtered
         Branches) (default: False)
     :arg list include-branches: Defined list of branches to include
@@ -1077,6 +1104,7 @@ def gitlab(parser, xml_parent, data):
         ('set-build-description', 'setBuildDescription', True),
         ('add-note-merge-request', 'addNoteOnMergeRequest', True),
         ('add-vote-merge-request', 'addVoteOnMergeRequest', True),
+        ('add-ci-message', 'addCiMessage', False),
         ('allow-all-branches', 'allowAllBranches', False),
     )
     list_mapping = (
